@@ -1,0 +1,18 @@
+
+{
+  "name": "Menu Pro HR",
+  "short_name": "MenuPro",
+  "description": "Professional Employee Time Tracking & Payroll",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#4f46e5",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3652/3652191.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+
+{
+  "name": "Decathlan Time Tracker",
+  "short_name": "MenuPro",
+  "description": "Professional Employee Time Tracking & Payroll PWA",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "orientation": "portrait",
+  "display": "standalone"
+}
