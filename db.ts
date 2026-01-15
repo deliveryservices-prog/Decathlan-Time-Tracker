@@ -12,12 +12,10 @@ const KEYS = {
 
 const DEFAULT_COMPANY: CompanyInfo = {
   name: 'Decathlan HR Services',
-  email: 'hr@decathlan.com'
+  email: 'hr@decathlan.com',
+  updatedAt: 0
 };
 
-/** 
- * Cleanly formats ISO to HH:mm for display and Google Sheets
- */
 const formatToHHmm = (isoStr: string | null): string => {
   if (!isoStr || isoStr === '' || isoStr === 'null') return '';
   try {
@@ -29,9 +27,6 @@ const formatToHHmm = (isoStr: string | null): string => {
   }
 };
 
-/** 
- * Reconstructs a full ISO string from Sheet's Date and Time
- */
 const reconstructISO = (dateStr: string, timeStr: string | null): string | null => {
   if (!timeStr || timeStr === '' || timeStr === '-' || timeStr === 'null') return null;
   if (String(timeStr).includes('T')) return timeStr; 
@@ -46,16 +41,30 @@ const reconstructISO = (dateStr: string, timeStr: string | null): string | null 
 };
 
 /**
- * Merges lists non-destructively based on unique IDs.
+ * Merges lists based on unique IDs and 'updatedAt' timestamp.
+ * The record with the higher timestamp (most recent edit) wins.
  */
 const mergeLists = (local: any[], cloud: any[], idField: string) => {
   const cleanLocal = (local || []).filter(item => item && item[idField]);
   const cleanCloud = (cloud || []).filter(item => item && item[idField]);
   
-  const map = new Map();
-  cleanCloud.forEach(item => map.set(item[idField], item));
+  const map = new Map<string, any>();
+  
+  // Strategy: Add all local first, then overwrite with cloud ONLY if cloud is newer.
+  // Then add any cloud records that aren't local.
+  
   cleanLocal.forEach(item => {
-    if (!map.has(item[idField])) map.set(item[idField], item);
+    map.set(item[idField], { ...item, updatedAt: Number(item.updatedAt) || 0 });
+  });
+
+  cleanCloud.forEach(cloudItem => {
+    const cloudTs = Number(cloudItem.updatedAt) || 0;
+    const localItem = map.get(cloudItem[idField]);
+    const localTs = localItem ? (Number(localItem.updatedAt) || 0) : -1;
+
+    if (cloudTs >= localTs) {
+      map.set(cloudItem[idField], { ...cloudItem, updatedAt: cloudTs });
+    }
   });
   
   return Array.from(map.values());
@@ -68,10 +77,12 @@ export const db = {
     if (!url || url.includes('/edit')) return false;
 
     try {
+      // 1. PULL
       const getResponse = await fetch(url, { method: 'GET', cache: 'no-cache', mode: 'cors' });
       if (!getResponse.ok) return false;
       const cloudData = await getResponse.json();
 
+      // Normalize cloud timesheet records
       if (cloudData[KEYS.TIMESHEET] && Array.isArray(cloudData[KEYS.TIMESHEET])) {
         cloudData[KEYS.TIMESHEET] = cloudData[KEYS.TIMESHEET]
           .filter((e: any) => e && e.id)
@@ -81,29 +92,35 @@ export const db = {
             timeIn: reconstructISO(entry.date, entry.timeIn) || entry.timeIn,
             timeOut: reconstructISO(entry.date, entry.timeOut) || entry.timeOut,
             breakMinutes: parseInt(entry.breakMinutes) || 0,
-            totalHours: parseFloat(entry.totalHours) || 0
+            totalHours: parseFloat(entry.totalHours) || 0,
+            updatedAt: Number(entry.updatedAt) || 0
           }));
       }
 
+      // 2. MERGE (Timestamp Based)
       const mergedEmployees = mergeLists(db.getEmployees(), cloudData[KEYS.EMPLOYEES], 'employeeId');
       const mergedTimesheet = mergeLists(db.getTimesheet(), cloudData[KEYS.TIMESHEET], 'id');
       const mergedHolidays = mergeLists(db.getHolidays(), cloudData[KEYS.HOLIDAYS], 'id');
       const mergedPH = mergeLists(db.getPublicHolidays(), cloudData[KEYS.PUBLIC_HOLIDAYS], 'id');
 
+      // 3. PERSIST LOCAL
       localStorage.setItem(KEYS.EMPLOYEES, JSON.stringify(mergedEmployees));
       localStorage.setItem(KEYS.TIMESHEET, JSON.stringify(mergedTimesheet));
       localStorage.setItem(KEYS.HOLIDAYS, JSON.stringify(mergedHolidays));
       localStorage.setItem(KEYS.PUBLIC_HOLIDAYS, JSON.stringify(mergedPH));
       
       if (cloudData[KEYS.SETTINGS] && Array.isArray(cloudData[KEYS.SETTINGS]) && cloudData[KEYS.SETTINGS].length > 0) {
+        // Special merge for settings if needed, but usually simpler to just take latest
         localStorage.setItem(KEYS.SETTINGS, JSON.stringify(cloudData[KEYS.SETTINGS]));
       }
 
+      // 4. PUSH (Clean formatted data for Sheets)
       const formattedTimesheet = mergedTimesheet.map(entry => ({
         ...entry,
         date: entry.date.split('T')[0], 
         timeIn: formatToHHmm(entry.timeIn),
-        timeOut: entry.timeOut ? formatToHHmm(entry.timeOut) : null
+        timeOut: entry.timeOut ? formatToHHmm(entry.timeOut) : null,
+        updatedAt: entry.updatedAt
       }));
 
       const payload = {
@@ -148,12 +165,13 @@ export const db = {
   },
 
   updateCompanyInfo: (info: CompanyInfo): void => {
-    localStorage.setItem(KEYS.COMPANY, JSON.stringify(info));
+    const updated = { ...info, updatedAt: Date.now() };
+    localStorage.setItem(KEYS.COMPANY, JSON.stringify(updated));
   },
 
   saveEmployee: (employee: Employee): void => {
     const employees = db.getEmployees();
-    employees.push(employee);
+    employees.push({ ...employee, updatedAt: Date.now() });
     localStorage.setItem(KEYS.EMPLOYEES, JSON.stringify(employees));
   },
 
@@ -161,7 +179,7 @@ export const db = {
     const employees = db.getEmployees();
     const index = employees.findIndex(e => e.employeeId === updatedEmployee.employeeId);
     if (index !== -1) {
-      employees[index] = updatedEmployee;
+      employees[index] = { ...updatedEmployee, updatedAt: Date.now() };
       localStorage.setItem(KEYS.EMPLOYEES, JSON.stringify(employees));
     }
   },
@@ -179,7 +197,6 @@ export const db = {
   getSettings: (): Setting[] => {
     const data = localStorage.getItem(KEYS.SETTINGS);
     const parsed = data ? JSON.parse(data) : [];
-    // If parsed is empty, fallback to INITIAL_SETTINGS
     return (Array.isArray(parsed) && parsed.length > 0) ? parsed : INITIAL_SETTINGS;
   },
 
@@ -187,7 +204,7 @@ export const db = {
     const timesheet = db.getTimesheet();
     const index = timesheet.findIndex(t => t.id === updatedEntry.id);
     if (index !== -1) {
-      timesheet[index] = updatedEntry;
+      timesheet[index] = { ...updatedEntry, updatedAt: Date.now() };
       localStorage.setItem(KEYS.TIMESHEET, JSON.stringify(timesheet));
     }
   },
@@ -198,7 +215,8 @@ export const db = {
   },
 
   updateSettings: (settings: Setting[]) => {
-    localStorage.setItem(KEYS.SETTINGS, JSON.stringify(settings));
+    const updated = settings.map(s => ({ ...s, updatedAt: Date.now() }));
+    localStorage.setItem(KEYS.SETTINGS, JSON.stringify(updated));
   },
 
   getHolidays: (): HolidayEntry[] => {
@@ -208,7 +226,7 @@ export const db = {
 
   saveHoliday: (holiday: HolidayEntry) => {
     const holidays = db.getHolidays();
-    holidays.push(holiday);
+    holidays.push({ ...holiday, updatedAt: Date.now() });
     localStorage.setItem(KEYS.HOLIDAYS, JSON.stringify(holidays));
   },
 
@@ -216,7 +234,7 @@ export const db = {
     const holidays = db.getHolidays();
     const index = holidays.findIndex(h => h.id === holiday.id);
     if (index !== -1) {
-      holidays[index] = holiday;
+      holidays[index] = { ...holiday, updatedAt: Date.now() };
       localStorage.setItem(KEYS.HOLIDAYS, JSON.stringify(holidays));
     }
   },
@@ -233,7 +251,7 @@ export const db = {
 
   savePublicHoliday: (holiday: PublicHoliday) => {
     const holidays = db.getPublicHolidays();
-    holidays.push(holiday);
+    holidays.push({ ...holiday, updatedAt: Date.now() });
     localStorage.setItem(KEYS.PUBLIC_HOLIDAYS, JSON.stringify(holidays));
   },
 
@@ -241,7 +259,7 @@ export const db = {
     const holidays = db.getPublicHolidays();
     const index = holidays.findIndex(p => p.id === ph.id);
     if (index !== -1) {
-      holidays[index] = ph;
+      holidays[index] = { ...ph, updatedAt: Date.now() };
       localStorage.setItem(KEYS.PUBLIC_HOLIDAYS, JSON.stringify(holidays));
     }
   },
@@ -266,7 +284,8 @@ export const db = {
         timeIn: now.toISOString(),
         timeOut: null,
         totalHours: 0,
-        breakMinutes: 0
+        breakMinutes: 0,
+        updatedAt: Date.now()
       };
     });
 
@@ -287,7 +306,8 @@ export const db = {
           ...entry,
           timeOut: now.toISOString(),
           totalHours: Math.max(0, diffHrs),
-          breakMinutes: breakMinutes
+          breakMinutes: breakMinutes,
+          updatedAt: Date.now()
         };
       }
       return entry;

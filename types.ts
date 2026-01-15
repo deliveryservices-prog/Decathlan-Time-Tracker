@@ -1,4 +1,3 @@
-
 export interface Employee {
   employeeId: string;
   nameAndSurname: string;
@@ -7,14 +6,16 @@ export interface Employee {
   email: string;
   grossHourlyWage: number;
   mandatoryMonthlyHours: number;
-  holidayDays: number; // Total allowed per year
+  holidayDays: number;
   photo: string;
+  updatedAt?: number;
 }
 
 export interface CompanyInfo {
   name: string;
   email: string;
-  appsScriptUrl?: string; // URL for Google Apps Script deployment
+  appsScriptUrl?: string;
+  updatedAt?: number;
 }
 
 export interface HolidayEntry {
@@ -24,23 +25,26 @@ export interface HolidayEntry {
   startDate: string;
   endDate: string;
   totalDays: number;
+  updatedAt?: number;
 }
 
 export interface PublicHoliday {
   id: string;
   name: string;
-  date: string; // ISO Date String (YYYY-MM-DD)
+  date: string;
+  updatedAt?: number;
 }
 
 export interface TimesheetEntry {
   id: string;
   employeeId: string;
   employeeName: string;
-  date: string; // ISO Date String
-  timeIn: string; // ISO Time String
-  timeOut: string | null; // ISO Time String or null
+  date: string;
+  timeIn: string;
+  timeOut: string | null;
   totalHours: number;
-  breakMinutes?: number; // Minutes spent on break
+  breakMinutes?: number;
+  updatedAt?: number;
 }
 
 export enum TaxType {
@@ -56,6 +60,7 @@ export enum TaxType {
 export interface Setting {
   taxType: TaxType;
   percentage: number;
+  updatedAt?: number;
 }
 
 export type AppView = 'CLOCK_IN' | 'CLOCKED_IN' | 'HISTORY' | 'ANALYTICS' | 'EMPLOYEES' | 'SETTINGS' | 'HOLIDAYS';

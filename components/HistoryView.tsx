@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { TimesheetEntry, Employee, Setting } from '../types';
-import { Search, Calendar, Edit2, Trash2, X, CheckCircle, Clock, Coffee, ArrowRight } from 'lucide-react';
+import { Search, Calendar, Edit2, Trash2, X, CheckCircle, Clock, Coffee, ArrowRight, Calculator, Euro, Timer } from 'lucide-react';
 import { db } from '../db';
 
 interface Props {
@@ -18,7 +18,7 @@ const HistoryView: React.FC<Props> = ({ timesheet, employees, settings, onUpdate
   const [showToast, setShowToast] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null);
 
   const employeeDeductionPct = useMemo(() => {
-    return settings
+    return (settings || [])
       .filter(s => s.taxType.includes('Employee'))
       .reduce((acc, curr) => acc + curr.percentage, 0);
   }, [settings]);
@@ -34,13 +34,39 @@ const HistoryView: React.FC<Props> = ({ timesheet, employees, settings, onUpdate
       .sort((a, b) => new Date(b.timeIn).getTime() - new Date(a.timeIn).getTime());
   }, [timesheet, searchTerm, dateFilter]);
 
+  const calculateFinancials = (entry: TimesheetEntry) => {
+    const emp = employees.find(e => e.employeeId === entry.employeeId);
+    if (!emp) return { gross: 0, net: 0, photo: '' };
+    const gross = (entry.totalHours || 0) * emp.grossHourlyWage;
+    const net = gross * (1 - employeeDeductionPct / 100);
+    return { gross, net, photo: emp.photo };
+  };
+
+  const summary = useMemo(() => {
+    return filteredHistory.reduce((acc, entry) => {
+      const { gross, net } = calculateFinancials(entry);
+      return {
+        hours: acc.hours + (entry.totalHours || 0),
+        gross: acc.gross + gross,
+        net: acc.net + net,
+        count: acc.count + 1
+      };
+    }, { hours: 0, gross: 0, net: 0, count: 0 });
+  }, [filteredHistory, employees, employeeDeductionPct]);
+
+  // Fix: Better handling of local datetime-local input formatting
   const toLocalISOForInput = (isoStr: string | null | undefined): string => {
     if (!isoStr) return '';
     try {
-      const date = new Date(isoStr);
-      if (isNaN(date.getTime())) return '';
-      const offset = date.getTimezoneOffset() * 60000;
-      return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+      const d = new Date(isoStr);
+      if (isNaN(d.getTime())) return '';
+      // Format as YYYY-MM-DDTHH:mm using local values
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const hours = String(d.getHours()).padStart(2, '0');
+      const minutes = String(d.getMinutes()).padStart(2, '0');
+      return `${year}-${month}-${day}T${hours}:${minutes}`;
     } catch { return ''; }
   };
 
@@ -48,17 +74,9 @@ const HistoryView: React.FC<Props> = ({ timesheet, employees, settings, onUpdate
     if (!isoStr) return '--:--';
     try {
       const d = new Date(isoStr);
-      if (isNaN(d.getTime())) return isoStr; // If already HH:mm
+      if (isNaN(d.getTime())) return isoStr;
       return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
     } catch { return '--:--'; }
-  };
-
-  const calculateFinancials = (entry: TimesheetEntry) => {
-    const emp = employees.find(e => e.employeeId === entry.employeeId);
-    if (!emp) return { gross: 0, net: 0, photo: '' };
-    const gross = (entry.totalHours || 0) * emp.grossHourlyWage;
-    const net = gross * (1 - employeeDeductionPct / 100);
-    return { gross, net, photo: emp.photo };
   };
 
   const handleUpdateEntry = (e: React.FormEvent) => {
@@ -68,7 +86,7 @@ const HistoryView: React.FC<Props> = ({ timesheet, employees, settings, onUpdate
     const timeIn = new Date(editingEntry.timeIn);
     const timeOut = editingEntry.timeOut ? new Date(editingEntry.timeOut) : null;
     
-    if (timeOut) {
+    if (timeIn && timeOut) {
       const diffMs = timeOut.getTime() - timeIn.getTime();
       const breakMs = (editingEntry.breakMinutes || 0) * 60 * 1000;
       const netMs = diffMs - breakMs;
@@ -107,13 +125,37 @@ const HistoryView: React.FC<Props> = ({ timesheet, employees, settings, onUpdate
         </div>
       )}
 
-      <div className="flex flex-col md:flex-row gap-4">
+      {/* Summary Section */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-white border border-slate-100 p-5 rounded-[2rem] shadow-sm flex flex-col items-center justify-center text-center">
+          <div className="bg-indigo-50 p-2 rounded-xl text-indigo-600 mb-2"><Calculator size={16} /></div>
+          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Shifts</p>
+          <p className="text-xl font-black text-slate-800">{summary.count}</p>
+        </div>
+        <div className="bg-white border border-slate-100 p-5 rounded-[2rem] shadow-sm flex flex-col items-center justify-center text-center">
+          <div className="bg-emerald-50 p-2 rounded-xl text-emerald-600 mb-2"><Timer size={16} /></div>
+          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Total Hours</p>
+          <p className="text-xl font-black text-slate-800">{summary.hours.toFixed(1)}h</p>
+        </div>
+        <div className="bg-white border border-slate-100 p-5 rounded-[2rem] shadow-sm flex flex-col items-center justify-center text-center">
+          <div className="bg-amber-50 p-2 rounded-xl text-amber-600 mb-2"><Euro size={16} /></div>
+          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Gross Total</p>
+          <p className="text-xl font-black text-slate-800">€{summary.gross.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+        </div>
+        <div className="bg-indigo-600 p-5 rounded-[2rem] shadow-lg flex flex-col items-center justify-center text-center text-white">
+          <div className="bg-white/20 p-2 rounded-xl text-white mb-2"><Euro size={16} /></div>
+          <p className="text-[9px] font-black text-indigo-100 uppercase tracking-widest">Net Payable</p>
+          <p className="text-xl font-black">€{summary.net.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+        </div>
+      </div>
+
+      <div className="flex flex-col md:flex-row gap-4 bg-slate-50 p-4 rounded-[2.5rem]">
         <div className="flex-1 relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
           <input
             type="text"
             placeholder="Search team member..."
-            className="w-full pl-12 pr-4 py-4 md:py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-bold"
+            className="w-full pl-12 pr-4 py-4 md:py-3 bg-white border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-bold"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -122,7 +164,7 @@ const HistoryView: React.FC<Props> = ({ timesheet, employees, settings, onUpdate
           <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
           <input
             type="date"
-            className="w-full pl-12 pr-4 py-4 md:py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-bold"
+            className="w-full pl-12 pr-4 py-4 md:py-3 bg-white border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 outline-none font-bold"
             value={dateFilter}
             onChange={(e) => setDateFilter(e.target.value)}
           />
@@ -169,7 +211,7 @@ const HistoryView: React.FC<Props> = ({ timesheet, employees, settings, onUpdate
                 <div className="w-full md:col-span-2 flex flex-col items-center gap-1">
                    <span className="md:hidden text-[9px] font-black text-slate-400 uppercase tracking-tighter">Shift Date</span>
                    <span className="text-sm md:text-[11px] font-black text-slate-600 bg-slate-100 px-4 py-1.5 rounded-xl uppercase">
-                    {entry.date.split('T')[0]}
+                    {entry.date}
                   </span>
                 </div>
 
@@ -248,19 +290,49 @@ const HistoryView: React.FC<Props> = ({ timesheet, employees, settings, onUpdate
             <form onSubmit={handleUpdateEntry} className="p-8 space-y-6 text-center">
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-slate-500 uppercase flex items-center gap-2 justify-center"><Clock size={12} /> Shift Start</label>
-                <input type="datetime-local" className="w-full px-5 py-3 border border-slate-200 rounded-2xl font-bold text-center bg-slate-50" value={toLocalISOForInput(editingEntry.timeIn)} onChange={e => setEditingEntry({...editingEntry, timeIn: new Date(e.target.value).toISOString()})} />
+                <input 
+                  type="datetime-local" 
+                  className="w-full px-5 py-3 border border-slate-200 rounded-2xl font-bold text-center bg-slate-50 outline-none focus:ring-4 focus:ring-indigo-500/10" 
+                  value={toLocalISOForInput(editingEntry.timeIn)} 
+                  onChange={e => {
+                    const localDate = new Date(e.target.value);
+                    if (!isNaN(localDate.getTime())) {
+                      setEditingEntry({...editingEntry, timeIn: localDate.toISOString()});
+                    }
+                  }} 
+                />
               </div>
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-slate-500 uppercase flex items-center gap-2 justify-center"><Clock size={12} /> Shift End</label>
-                <input type="datetime-local" className="w-full px-5 py-3 border border-slate-200 rounded-2xl font-bold text-center bg-slate-50" value={toLocalISOForInput(editingEntry.timeOut)} onChange={e => setEditingEntry({...editingEntry, timeOut: new Date(e.target.value).toISOString()})} />
+                <input 
+                  type="datetime-local" 
+                  className="w-full px-5 py-3 border border-slate-200 rounded-2xl font-bold text-center bg-slate-50 outline-none focus:ring-4 focus:ring-indigo-500/10" 
+                  value={toLocalISOForInput(editingEntry.timeOut)} 
+                  onChange={e => {
+                    const localDate = new Date(e.target.value);
+                    if (!isNaN(localDate.getTime())) {
+                      setEditingEntry({...editingEntry, timeOut: localDate.toISOString()});
+                    }
+                  }} 
+                />
               </div>
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-slate-500 uppercase flex items-center gap-2 justify-center"><Coffee size={12} /> Break Minutes</label>
-                <input type="number" className="w-full px-5 py-3 border border-slate-200 rounded-2xl font-bold text-center bg-slate-50" value={editingEntry.breakMinutes || 0} onChange={e => setEditingEntry({...editingEntry, breakMinutes: parseInt(e.target.value) || 0})} />
+                <select 
+                  className="w-full px-5 py-3 border border-slate-200 rounded-2xl font-bold text-center bg-slate-50 outline-none focus:ring-4 focus:ring-indigo-500/10 appearance-none cursor-pointer" 
+                  value={editingEntry.breakMinutes || 0} 
+                  onChange={e => setEditingEntry({...editingEntry, breakMinutes: parseInt(e.target.value) || 0})} 
+                >
+                  <option value="0">0m</option>
+                  <option value="15">15m</option>
+                  <option value="30">30m</option>
+                  <option value="45">45m</option>
+                  <option value="60">60m</option>
+                </select>
               </div>
               <div className="flex gap-4 pt-4">
-                <button type="button" onClick={() => setEditingEntry(null)} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black">Cancel</button>
-                <button type="submit" className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-lg shadow-indigo-100">Update</button>
+                <button type="button" onClick={() => setEditingEntry(null)} className="flex-1 py-4 bg-slate-100 text-slate-600 rounded-2xl font-black uppercase tracking-widest text-xs">Cancel</button>
+                <button type="submit" className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-lg shadow-indigo-100 uppercase tracking-widest text-xs">Save Changes</button>
               </div>
             </form>
           </div>
