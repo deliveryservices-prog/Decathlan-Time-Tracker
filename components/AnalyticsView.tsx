@@ -85,7 +85,7 @@ const AnalyticsView: React.FC<Props> = ({ timesheet, employees, settings, holida
         const entryGross = entry.totalHours * emp.grossHourlyWage;
         const entryNet = entryGross * (1 - employeeDeductionPct / 100);
         return {
-          date: entry.date,
+          date: entry.date.split('T')[0],
           start: new Date(entry.timeIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           end: entry.timeOut ? new Date(entry.timeOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-',
           isHoliday: 'No',
@@ -252,7 +252,6 @@ const AnalyticsView: React.FC<Props> = ({ timesheet, employees, settings, holida
     setIsSending(true);
     try {
       const { doc, filename } = generateReportDoc();
-      // Extract pure base64 without prefix for the script
       const pdfBase64 = doc.output('datauristring').split(',')[1];
       
       const emailPayload = {

@@ -13,21 +13,32 @@ const ClockedInView: React.FC<Props> = ({ activeEntries, employees, onSuccess })
   const [outTimes, setOutTimes] = useState<Record<string, string>>({});
   const [breaks, setBreaks] = useState<Record<string, number>>({});
 
+  // Protect manual inputs: only initialize values for NEWLY active entries
   useEffect(() => {
     const now = new Date().toTimeString().slice(0, 5);
-    const updatedTimes = { ...outTimes };
-    const updatedBreaks = { ...breaks };
-    
-    activeEntries.forEach(entry => {
-      if (!updatedTimes[entry.id]) {
-        updatedTimes[entry.id] = now;
-      }
-      if (updatedBreaks[entry.id] === undefined) {
-        updatedBreaks[entry.id] = 0;
-      }
+    setOutTimes(prev => {
+      const next = { ...prev };
+      let changed = false;
+      activeEntries.forEach(entry => {
+        if (!next[entry.id]) {
+          next[entry.id] = now;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
     });
-    setOutTimes(updatedTimes);
-    setBreaks(updatedBreaks);
+
+    setBreaks(prev => {
+      const next = { ...prev };
+      let changed = false;
+      activeEntries.forEach(entry => {
+        if (next[entry.id] === undefined) {
+          next[entry.id] = 0;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
   }, [activeEntries]);
 
   const validateTime = (entry: TimesheetEntry) => {
@@ -68,12 +79,14 @@ const ClockedInView: React.FC<Props> = ({ activeEntries, employees, onSuccess })
     onSuccess();
   };
 
-  const updateOutTime = (id: string, time: string) => {
-    setOutTimes(prev => ({ ...prev, [id]: time }));
-  };
-
-  const updateBreak = (id: string, mins: number) => {
-    setBreaks(prev => ({ ...prev, [id]: mins }));
+  const formatDisplayTime = (isoStr: string) => {
+    try {
+      const d = new Date(isoStr);
+      if (isNaN(d.getTime())) return isoStr; 
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    } catch {
+      return '--:--';
+    }
   };
 
   const getDuration = (timeIn: string) => {
@@ -100,7 +113,6 @@ const ClockedInView: React.FC<Props> = ({ activeEntries, employees, onSuccess })
 
   return (
     <div className="space-y-4">
-      {/* Desktop Table Header */}
       <div className="hidden md:grid grid-cols-12 gap-4 px-6 py-4 bg-slate-50 rounded-2xl text-[10px] font-black text-slate-500 uppercase tracking-widest text-center">
         <span className="col-span-3">Employee</span>
         <span className="col-span-2">In Time</span>
@@ -112,7 +124,7 @@ const ClockedInView: React.FC<Props> = ({ activeEntries, employees, onSuccess })
 
       <div className="space-y-4">
         {activeEntries.map(entry => {
-          const inTimeValue = new Date(entry.timeIn).toTimeString().slice(0, 5);
+          const inTimeValue = formatDisplayTime(entry.timeIn);
           const isValid = validateTime(entry);
           const employee = employees.find(e => e.employeeId === entry.employeeId);
           
@@ -123,7 +135,6 @@ const ClockedInView: React.FC<Props> = ({ activeEntries, employees, onSuccess })
                 isValid ? 'border-slate-100 hover:shadow-md' : 'border-rose-200 bg-rose-50/20'
               }`}
             >
-              {/* Employee Photo & Info */}
               <div className="w-full col-span-3 flex flex-col md:flex-row items-center gap-3 md:gap-4">
                 <div className="w-14 h-14 md:w-11 md:h-11 rounded-2xl bg-indigo-600 overflow-hidden shadow-md shrink-0 flex items-center justify-center border-2 border-white">
                   {employee?.photo ? (
@@ -139,13 +150,9 @@ const ClockedInView: React.FC<Props> = ({ activeEntries, employees, onSuccess })
                 </div>
               </div>
 
-              {/* Mobile Separator */}
               <div className="md:hidden w-full h-px bg-slate-100 my-2"></div>
 
-              {/* Grid Area */}
               <div className="w-full col-span-8 grid grid-cols-2 md:grid-cols-8 gap-4 items-end">
-                
-                {/* Editable Clock In */}
                 <div className="flex flex-col gap-1.5 items-center col-span-1 md:col-span-2">
                   <label className="text-[9px] font-black text-slate-400 uppercase flex items-center gap-1.5">
                      <ClockIcon size={12} className="text-indigo-400" /> Start
@@ -154,13 +161,10 @@ const ClockedInView: React.FC<Props> = ({ activeEntries, employees, onSuccess })
                     type="time"
                     value={inTimeValue}
                     onChange={(e) => handleUpdateInTime(entry, e.target.value)}
-                    className={`w-full px-4 py-2.5 md:py-1.5 border rounded-xl text-sm font-black focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all text-center ${
-                      isValid ? 'border-slate-200 bg-slate-50' : 'border-rose-400 bg-rose-50 text-rose-700'
-                    }`}
+                    className="w-full px-4 py-2.5 md:py-1.5 border border-slate-200 bg-slate-50 rounded-xl text-sm font-black focus:ring-4 focus:ring-indigo-500/10 outline-none text-center"
                   />
                 </div>
 
-                {/* Duration */}
                 <div className="flex flex-col gap-1.5 items-center col-span-1 md:col-span-2">
                    <label className="text-[9px] font-black text-slate-400 uppercase flex items-center gap-1.5">
                      <Timer size={12} className="text-emerald-400" /> Live
@@ -170,14 +174,13 @@ const ClockedInView: React.FC<Props> = ({ activeEntries, employees, onSuccess })
                   </div>
                 </div>
 
-                {/* Break Input */}
                 <div className="flex flex-col gap-1.5 items-center col-span-1 md:col-span-2">
                   <label className="text-[9px] font-black text-slate-400 uppercase flex items-center gap-1.5">
                      <Coffee size={12} className="text-amber-400" /> Break
                   </label>
                   <select 
                     value={breaks[entry.id] || 0}
-                    onChange={(e) => updateBreak(entry.id, parseInt(e.target.value))}
+                    onChange={(e) => setBreaks(prev => ({ ...prev, [entry.id]: parseInt(e.target.value) }))}
                     className="w-full px-4 py-2.5 md:py-1.5 border border-slate-200 rounded-xl text-sm font-black focus:ring-4 focus:ring-indigo-500/10 outline-none text-center appearance-none bg-slate-50"
                   >
                     <option value="0">0m</option>
@@ -188,7 +191,6 @@ const ClockedInView: React.FC<Props> = ({ activeEntries, employees, onSuccess })
                   </select>
                 </div>
 
-                {/* Clock Out Selection */}
                 <div className="flex flex-col gap-1.5 items-center col-span-1 md:col-span-2">
                   <label className="text-[9px] font-black text-slate-400 uppercase flex items-center gap-1.5">
                      <LogOut size={12} className="text-rose-400" /> End
@@ -196,7 +198,7 @@ const ClockedInView: React.FC<Props> = ({ activeEntries, employees, onSuccess })
                   <input 
                     type="time"
                     value={outTimes[entry.id] || ''}
-                    onChange={(e) => updateOutTime(entry.id, e.target.value)}
+                    onChange={(e) => setOutTimes(prev => ({ ...prev, [entry.id]: e.target.value }))}
                     className={`w-full px-4 py-2.5 md:py-1.5 border rounded-xl text-sm font-black focus:ring-4 focus:ring-indigo-500/10 outline-none transition-all text-center ${
                       isValid ? 'border-slate-200' : 'border-rose-400 bg-rose-50 text-rose-700'
                     }`}
@@ -204,19 +206,17 @@ const ClockedInView: React.FC<Props> = ({ activeEntries, employees, onSuccess })
                 </div>
               </div>
 
-              {/* Action Button */}
               <div className="w-full col-span-1 pt-4 md:pt-0 flex justify-center">
                 <button
                   onClick={() => handleClockOut(entry)}
                   disabled={!isValid}
-                  title="Clock Out"
                   className={`w-full md:w-11 h-12 md:h-11 rounded-2xl transition-all border shadow-lg flex items-center justify-center ${
                     isValid 
                       ? 'bg-rose-600 text-white border-rose-500 shadow-rose-200 hover:bg-rose-700 active:scale-95' 
                       : 'bg-slate-100 text-slate-300 border-slate-100 cursor-not-allowed shadow-none'
                   }`}
                 >
-                  <LogOut className="w-5 h-5 md:w-4 h-4" />
+                  <LogOut className="w-5 h-5 md:w-4 md:h-4" />
                   <span className="md:hidden ml-2 font-black text-xs uppercase tracking-widest">Clock Out Now</span>
                 </button>
               </div>

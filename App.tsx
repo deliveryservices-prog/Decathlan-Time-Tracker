@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { db } from './db';
 import { AppView, Employee, TimesheetEntry, Setting, HolidayEntry, PublicHoliday } from './types';
@@ -15,17 +14,12 @@ import {
   Calendar, 
   BarChart3, 
   Settings as SettingsIcon,
-  LogOut,
   UserCog,
   Palmtree,
-  Menu as MenuIcon,
-  X,
   CloudLightning,
   CloudOff,
   RefreshCw,
-  Loader2,
-  CheckCircle2,
-  AlertCircle
+  Loader2
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -36,6 +30,7 @@ const App: React.FC = () => {
   const [holidays, setHolidays] = useState<HolidayEntry[]>([]);
   const [publicHolidays, setPublicHolidays] = useState<PublicHoliday[]>([]);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'error' | 'success'>('idle');
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
 
   const refreshData = () => {
     setEmployees(db.getEmployees());
@@ -47,21 +42,10 @@ const App: React.FC = () => {
 
   const handleManualSync = async () => {
     setSyncStatus('syncing');
-    const success = await db.syncWithCloud();
+    const success = await db.performGlobalSync();
     if (success) {
       refreshData();
-      setSyncStatus('success');
-      setTimeout(() => setSyncStatus('idle'), 3000);
-    } else {
-      setSyncStatus('error');
-      setTimeout(() => setSyncStatus('idle'), 5000);
-    }
-  };
-
-  const handlePushData = async () => {
-    setSyncStatus('syncing');
-    const success = await db.pushToCloud();
-    if (success) {
+      setLastSyncTime(new Date());
       setSyncStatus('success');
       setTimeout(() => setSyncStatus('idle'), 3000);
     } else {
@@ -75,13 +59,17 @@ const App: React.FC = () => {
       const info = db.getCompanyInfo();
       if (info.appsScriptUrl) {
         setSyncStatus('syncing');
-        const success = await db.syncWithCloud();
+        const success = await db.performGlobalSync();
         setSyncStatus(success ? 'success' : 'error');
-        if (success) setTimeout(() => setSyncStatus('idle'), 2000);
+        if (success) {
+          setLastSyncTime(new Date());
+          setTimeout(() => setSyncStatus('idle'), 2000);
+        }
       }
       refreshData();
     };
     init();
+    // Removed setInterval: Synchronization now triggered by User Actions only
   }, []);
 
   const activeEntries = useMemo(() => 
@@ -104,41 +92,35 @@ const App: React.FC = () => {
         <button 
           onClick={handleManualSync}
           disabled={syncStatus === 'syncing'}
-          title="Pull from Cloud"
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-tighter transition-all ${
+          title="Manual Cloud Sync"
+          className={`flex items-center gap-2 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-tighter transition-all shadow-sm ${
             syncStatus === 'syncing' ? 'bg-indigo-50 text-indigo-400' :
             syncStatus === 'success' ? 'bg-emerald-50 text-emerald-600' :
             syncStatus === 'error' ? 'bg-rose-50 text-rose-600' :
-            'bg-slate-50 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600'
+            'bg-slate-50 text-slate-400 hover:bg-indigo-600 hover:text-white hover:shadow-indigo-100'
           }`}
         >
           {syncStatus === 'syncing' ? <Loader2 size={12} className="animate-spin" /> : 
-           syncStatus === 'error' ? <CloudOff size={12} /> : <RefreshCw size={12} />}
+           syncStatus === 'error' ? <CloudOff size={12} /> : 
+           syncStatus === 'success' ? <CloudLightning size={12} /> : <RefreshCw size={12} />}
           {syncStatus === 'syncing' ? 'Syncing...' : 
-           syncStatus === 'success' ? 'Ready' : 
-           syncStatus === 'error' ? 'Retry' : 'Fetch'}
-        </button>
-        <button 
-          onClick={handlePushData}
-          disabled={syncStatus === 'syncing'}
-          title="Push to Cloud"
-          className="p-1.5 bg-indigo-50 text-indigo-600 rounded-full hover:bg-indigo-600 hover:text-white transition-all"
-        >
-          <CloudLightning size={14} />
+           syncStatus === 'success' ? 'Synced' : 
+           syncStatus === 'error' ? 'Retry Sync' : 'Sync Now'}
         </button>
       </div>
-      {syncStatus === 'error' && (
-        <span className="text-[8px] font-black text-rose-500 uppercase">Check Apps Script URL</span>
+      {lastSyncTime && (
+        <span className="text-[7px] font-bold text-slate-300 uppercase tracking-widest">
+          Last Check: {lastSyncTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </span>
       )}
     </div>
   );
 
   return (
     <div className="min-h-screen pb-24 md:pb-0 md:pl-64 bg-slate-50">
-      {/* Desktop Sidebar */}
       <aside className="hidden md:flex flex-col fixed inset-y-0 left-0 w-64 bg-white border-r border-slate-200 z-50">
         <div className="p-6">
-          <div className="flex items-center gap-3 mb-4">
+          <div className="flex items-center gap-3 mb-6">
             <div className="bg-indigo-600 p-2 rounded-xl text-white shadow-lg shadow-indigo-200">
               <Clock size={24} />
             </div>
@@ -171,7 +153,6 @@ const App: React.FC = () => {
         </nav>
       </aside>
 
-      {/* Mobile Sticky Header */}
       <header className="md:hidden sticky top-0 bg-white/80 backdrop-blur-md border-b border-slate-100 z-[40] px-5 py-4 flex items-center justify-between">
          <div className="flex items-center gap-2">
             <div className="bg-indigo-600 p-1.5 rounded-lg text-white">
@@ -182,7 +163,6 @@ const App: React.FC = () => {
          <SyncIndicator />
       </header>
 
-      {/* Mobile Bottom Navigation */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around items-center h-20 px-2 z-[60] shadow-[0_-4px_10px_rgba(0,0,0,0.03)]">
         {navItems.map(item => (
           <button
@@ -216,12 +196,7 @@ const App: React.FC = () => {
                navItems.find(i => i.id === currentView)?.label === 'Leave' ? 'Holiday Management' :
                navItems.find(i => i.id === currentView)?.label}
             </h2>
-            <p className="text-slate-500 text-sm font-medium">Cloud Connected & Syncing across devices.</p>
-          </div>
-          <div className="hidden md:block">
-            <span className="text-xs font-bold text-slate-400 bg-slate-100 px-3 py-1.5 rounded-full uppercase tracking-wider">
-              {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
-            </span>
+            <p className="text-slate-500 text-sm font-medium">Cloud connected. Actions trigger instant sync.</p>
           </div>
         </header>
 

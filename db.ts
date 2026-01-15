@@ -1,4 +1,3 @@
-
 import { Employee, TimesheetEntry, Setting, HolidayEntry, CompanyInfo, PublicHoliday } from './types';
 import { INITIAL_EMPLOYEES, INITIAL_SETTINGS } from './constants';
 
@@ -16,108 +15,122 @@ const DEFAULT_COMPANY: CompanyInfo = {
   email: 'hr@decathlan.com'
 };
 
+/** 
+ * Cleanly formats ISO to HH:mm for display and Google Sheets
+ */
 const formatToHHmm = (isoStr: string | null): string => {
-  if (!isoStr) return '';
+  if (!isoStr || isoStr === '' || isoStr === 'null') return '';
   try {
     const date = new Date(isoStr);
+    if (isNaN(date.getTime())) return isoStr; // Return as is if already HH:mm
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
   } catch {
     return '';
   }
 };
 
+/** 
+ * Reconstructs a full ISO string from Sheet's Date and Time
+ */
 const reconstructISO = (dateStr: string, timeStr: string | null): string | null => {
-  if (!timeStr || timeStr === '' || timeStr === '-') return null;
+  if (!timeStr || timeStr === '' || timeStr === '-' || timeStr === 'null') return null;
+  if (String(timeStr).includes('T')) return timeStr; // Already ISO
   try {
-    if (String(timeStr).includes('T')) return timeStr;
-    const combined = `${dateStr}T${timeStr}:00`;
-    const d = new Date(combined);
+    const [hrs, mins] = timeStr.split(':');
+    const d = new Date(dateStr);
+    d.setHours(parseInt(hrs), parseInt(mins), 0, 0);
     return isNaN(d.getTime()) ? null : d.toISOString();
   } catch {
     return null;
   }
 };
 
-const getCleanUrl = (url?: string): string | null => {
-  if (!url) return null;
-  let clean = url.trim();
-  if (clean.includes('/edit') || clean.includes('/d/')) return null;
-  return clean;
+/**
+ * Merges lists non-destructively based on unique IDs.
+ * Filters out empty rows to prevent corruption.
+ */
+const mergeLists = (local: any[], cloud: any[], idField: string) => {
+  const cleanLocal = (local || []).filter(item => item && item[idField]);
+  const cleanCloud = (cloud || []).filter(item => item && item[idField]);
+  
+  const map = new Map();
+  cleanCloud.forEach(item => map.set(item[idField], item));
+  cleanLocal.forEach(item => {
+    if (!map.has(item[idField])) map.set(item[idField], item);
+  });
+  
+  return Array.from(map.values());
 };
 
 export const db = {
-  syncWithCloud: async (): Promise<boolean> => {
+  performGlobalSync: async (): Promise<boolean> => {
     const info = db.getCompanyInfo();
-    const url = getCleanUrl(info.appsScriptUrl);
-    if (!url) return false;
+    const url = info.appsScriptUrl?.trim();
+    if (!url || url.includes('/edit')) return false;
 
     try {
-      const response = await fetch(url, {
-        method: 'GET',
-        cache: 'no-cache',
-        mode: 'cors'
-      });
-      
-      if (!response.ok) return false;
-      const cloudData = await response.json();
+      // 1. PULL latest from Cloud
+      const getResponse = await fetch(url, { method: 'GET', cache: 'no-cache', mode: 'cors' });
+      if (!getResponse.ok) return false;
+      const cloudData = await getResponse.json();
 
-      // Time conversion logic to ensure durations work in-app
+      // 2. Format Cloud Data and scrub empty rows
       if (cloudData[KEYS.TIMESHEET] && Array.isArray(cloudData[KEYS.TIMESHEET])) {
-        cloudData[KEYS.TIMESHEET] = cloudData[KEYS.TIMESHEET].map((entry: any) => ({
-          ...entry,
-          timeIn: reconstructISO(entry.date, entry.timeIn) || entry.timeIn,
-          timeOut: reconstructISO(entry.date, entry.timeOut) || entry.timeOut,
-          breakMinutes: parseInt(entry.breakMinutes) || 0,
-          totalHours: parseFloat(entry.totalHours) || 0
-        }));
+        cloudData[KEYS.TIMESHEET] = cloudData[KEYS.TIMESHEET]
+          .filter((e: any) => e && e.id)
+          .map((entry: any) => ({
+            ...entry,
+            date: (entry.date || '').split('T')[0], // Ensure strict YYYY-MM-DD
+            timeIn: reconstructISO(entry.date, entry.timeIn) || entry.timeIn,
+            timeOut: reconstructISO(entry.date, entry.timeOut) || entry.timeOut,
+            breakMinutes: parseInt(entry.breakMinutes) || 0,
+            totalHours: parseFloat(entry.totalHours) || 0
+          }));
       }
 
-      Object.keys(KEYS).forEach(k => {
-        const storageKey = (KEYS as any)[k];
-        if (cloudData[storageKey] && Array.isArray(cloudData[storageKey])) {
-          localStorage.setItem(storageKey, JSON.stringify(cloudData[storageKey]));
+      // 3. MERGE
+      const mergedEmployees = mergeLists(db.getEmployees(), cloudData[KEYS.EMPLOYEES], 'employeeId');
+      const mergedTimesheet = mergeLists(db.getTimesheet(), cloudData[KEYS.TIMESHEET], 'id');
+      const mergedHolidays = mergeLists(db.getHolidays(), cloudData[KEYS.HOLIDAYS], 'id');
+      const mergedPH = mergeLists(db.getPublicHolidays(), cloudData[KEYS.PUBLIC_HOLIDAYS], 'id');
+
+      // 4. PERSIST LOCAL
+      localStorage.setItem(KEYS.EMPLOYEES, JSON.stringify(mergedEmployees));
+      localStorage.setItem(KEYS.TIMESHEET, JSON.stringify(mergedTimesheet));
+      localStorage.setItem(KEYS.HOLIDAYS, JSON.stringify(mergedHolidays));
+      localStorage.setItem(KEYS.PUBLIC_HOLIDAYS, JSON.stringify(mergedPH));
+      if (cloudData[KEYS.SETTINGS]) localStorage.setItem(KEYS.SETTINGS, JSON.stringify(cloudData[KEYS.SETTINGS]));
+
+      // 5. PUSH CLEAN DATA BACK
+      const formattedTimesheet = mergedTimesheet.map(entry => ({
+        ...entry,
+        date: entry.date.split('T')[0], // Triple safety for cloud push
+        timeIn: formatToHHmm(entry.timeIn),
+        timeOut: entry.timeOut ? formatToHHmm(entry.timeOut) : null
+      }));
+
+      const payload = {
+        full_sync: true,
+        data: {
+          [KEYS.EMPLOYEES]: mergedEmployees,
+          [KEYS.TIMESHEET]: formattedTimesheet,
+          [KEYS.SETTINGS]: db.getSettings(),
+          [KEYS.HOLIDAYS]: mergedHolidays,
+          [KEYS.PUBLIC_HOLIDAYS]: mergedPH,
+          [KEYS.COMPANY]: [db.getCompanyInfo()], 
         }
-      });
-      return true;
-    } catch (e) {
-      return false;
-    }
-  },
+      };
 
-  pushToCloud: async (): Promise<boolean> => {
-    const info = db.getCompanyInfo();
-    const url = getCleanUrl(info.appsScriptUrl);
-    if (!url) return false;
-
-    // Formatting timesheet back to HH:mm for Google Sheets readability
-    const formattedTimesheet = db.getTimesheet().map(entry => ({
-      ...entry,
-      timeIn: formatToHHmm(entry.timeIn),
-      timeOut: entry.timeOut ? formatToHHmm(entry.timeOut) : null
-    }));
-
-    // MATCHING "MASTER SCRIPT V7" PAYLOAD STRUCTURE
-    const fullPayload = {
-      full_sync: true,
-      data: {
-        [KEYS.EMPLOYEES]: db.getEmployees(),
-        [KEYS.TIMESHEET]: formattedTimesheet,
-        [KEYS.SETTINGS]: db.getSettings(),
-        [KEYS.HOLIDAYS]: db.getHolidays(),
-        [KEYS.PUBLIC_HOLIDAYS]: db.getPublicHolidays(),
-        [KEYS.COMPANY]: [db.getCompanyInfo()], 
-      }
-    };
-
-    try {
       await fetch(url, {
         method: 'POST',
-        mode: 'no-cors', // standard for silent success with Apps Script
+        mode: 'no-cors',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(fullPayload),
+        body: JSON.stringify(payload),
       });
+
       return true;
     } catch (e) {
+      console.error('Global sync failed', e);
       return false;
     }
   },
@@ -132,20 +145,21 @@ export const db = {
     if (!data) return DEFAULT_COMPANY;
     try {
       const parsed = JSON.parse(data);
-      return Array.isArray(parsed) ? parsed[0] : parsed;
+      const obj = Array.isArray(parsed) ? parsed[0] : parsed;
+      return obj || DEFAULT_COMPANY;
     } catch { return DEFAULT_COMPANY; }
   },
 
   updateCompanyInfo: (info: CompanyInfo): void => {
     localStorage.setItem(KEYS.COMPANY, JSON.stringify(info));
-    db.pushToCloud();
+    db.performGlobalSync();
   },
 
   saveEmployee: (employee: Employee): void => {
     const employees = db.getEmployees();
     employees.push(employee);
     localStorage.setItem(KEYS.EMPLOYEES, JSON.stringify(employees));
-    db.pushToCloud();
+    db.performGlobalSync();
   },
 
   updateEmployee: (updatedEmployee: Employee): void => {
@@ -154,14 +168,14 @@ export const db = {
     if (index !== -1) {
       employees[index] = updatedEmployee;
       localStorage.setItem(KEYS.EMPLOYEES, JSON.stringify(employees));
-      db.pushToCloud();
+      db.performGlobalSync();
     }
   },
 
   deleteEmployee: (employeeId: string): void => {
     const employees = db.getEmployees().filter(e => e.employeeId !== employeeId);
     localStorage.setItem(KEYS.EMPLOYEES, JSON.stringify(employees));
-    db.pushToCloud();
+    db.performGlobalSync();
   },
 
   getTimesheet: (): TimesheetEntry[] => {
@@ -174,28 +188,25 @@ export const db = {
     return data ? JSON.parse(data) : INITIAL_SETTINGS;
   },
 
-  saveTimesheet: (entries: TimesheetEntry[]) => {
-    localStorage.setItem(KEYS.TIMESHEET, JSON.stringify(entries));
-    db.pushToCloud();
-  },
-
   updateTimesheetEntry: (updatedEntry: TimesheetEntry): void => {
     const timesheet = db.getTimesheet();
     const index = timesheet.findIndex(t => t.id === updatedEntry.id);
     if (index !== -1) {
       timesheet[index] = updatedEntry;
-      db.saveTimesheet(timesheet);
+      localStorage.setItem(KEYS.TIMESHEET, JSON.stringify(timesheet));
+      db.performGlobalSync();
     }
   },
 
   deleteTimesheetEntry: (id: string): void => {
     const timesheet = db.getTimesheet().filter(t => t.id !== id);
-    db.saveTimesheet(timesheet);
+    localStorage.setItem(KEYS.TIMESHEET, JSON.stringify(timesheet));
+    db.performGlobalSync();
   },
 
   updateSettings: (settings: Setting[]) => {
     localStorage.setItem(KEYS.SETTINGS, JSON.stringify(settings));
-    db.pushToCloud();
+    db.performGlobalSync();
   },
 
   getHolidays: (): HolidayEntry[] => {
@@ -207,7 +218,7 @@ export const db = {
     const holidays = db.getHolidays();
     holidays.push(holiday);
     localStorage.setItem(KEYS.HOLIDAYS, JSON.stringify(holidays));
-    db.pushToCloud();
+    db.performGlobalSync();
   },
 
   updateHoliday: (holiday: HolidayEntry) => {
@@ -216,14 +227,14 @@ export const db = {
     if (index !== -1) {
       holidays[index] = holiday;
       localStorage.setItem(KEYS.HOLIDAYS, JSON.stringify(holidays));
-      db.pushToCloud();
+      db.performGlobalSync();
     }
   },
 
   deleteHoliday: (id: string) => {
     const holidays = db.getHolidays().filter(h => h.id !== id);
     localStorage.setItem(KEYS.HOLIDAYS, JSON.stringify(holidays));
-    db.pushToCloud();
+    db.performGlobalSync();
   },
 
   getPublicHolidays: (): PublicHoliday[] => {
@@ -235,7 +246,7 @@ export const db = {
     const holidays = db.getPublicHolidays();
     holidays.push(holiday);
     localStorage.setItem(KEYS.PUBLIC_HOLIDAYS, JSON.stringify(holidays));
-    db.pushToCloud();
+    db.performGlobalSync();
   },
 
   updatePublicHoliday: (ph: PublicHoliday) => {
@@ -244,17 +255,17 @@ export const db = {
     if (index !== -1) {
       holidays[index] = ph;
       localStorage.setItem(KEYS.PUBLIC_HOLIDAYS, JSON.stringify(holidays));
-      db.pushToCloud();
+      db.performGlobalSync();
     }
   },
 
   deletePublicHoliday: (id: string) => {
     const holidays = db.getPublicHolidays().filter(h => h.id !== id);
     localStorage.setItem(KEYS.PUBLIC_HOLIDAYS, JSON.stringify(holidays));
-    db.pushToCloud();
+    db.performGlobalSync();
   },
 
-  clockIn: (employeeIds: string[], customTimestamp?: string): void => {
+  clockIn: async (employeeIds: string[], customTimestamp?: string): Promise<void> => {
     const currentTimesheet = db.getTimesheet();
     const employees = db.getEmployees();
     const now = customTimestamp ? new Date(customTimestamp) : new Date();
@@ -273,17 +284,18 @@ export const db = {
       };
     });
 
-    db.saveTimesheet([...currentTimesheet, ...newEntries]);
+    localStorage.setItem(KEYS.TIMESHEET, JSON.stringify([...currentTimesheet, ...newEntries]));
+    await db.performGlobalSync();
   },
 
-  clockOut: (entryId: string, customTimestamp?: string, breakMinutes: number = 0): void => {
+  clockOut: async (entryId: string, customTimestamp?: string, breakMinutes: number = 0): Promise<void> => {
     const currentTimesheet = db.getTimesheet();
     const now = customTimestamp ? new Date(customTimestamp) : new Date();
     const updated = currentTimesheet.map(entry => {
       if (entry.id === entryId) {
         const timeIn = new Date(entry.timeIn);
         const diffMs = now.getTime() - timeIn.getTime();
-        const breakMs = breakMinutes * 60 * 1000;
+        const breakMs = (breakMinutes || 0) * 60 * 1000;
         const netMs = diffMs - breakMs;
         const diffHrs = parseFloat((netMs / (1000 * 60 * 60)).toFixed(2));
         return {
@@ -295,6 +307,8 @@ export const db = {
       }
       return entry;
     });
-    db.saveTimesheet(updated);
+    
+    localStorage.setItem(KEYS.TIMESHEET, JSON.stringify(updated));
+    await db.performGlobalSync();
   }
 };

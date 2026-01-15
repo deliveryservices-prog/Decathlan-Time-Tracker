@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { TimesheetEntry, Employee, Setting } from '../types';
 import { Search, Calendar, Edit2, Trash2, X, CheckCircle, Clock, Coffee, ArrowRight } from 'lucide-react';
@@ -35,18 +34,29 @@ const HistoryView: React.FC<Props> = ({ timesheet, employees, settings, onUpdate
       .sort((a, b) => new Date(b.timeIn).getTime() - new Date(a.timeIn).getTime());
   }, [timesheet, searchTerm, dateFilter]);
 
-  const toLocalISO = (isoStr: string | null | undefined): string => {
+  const toLocalISOForInput = (isoStr: string | null | undefined): string => {
     if (!isoStr) return '';
-    const date = new Date(isoStr);
-    if (isNaN(date.getTime())) return '';
-    const offset = date.getTimezoneOffset() * 60000;
-    return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+    try {
+      const date = new Date(isoStr);
+      if (isNaN(date.getTime())) return '';
+      const offset = date.getTimezoneOffset() * 60000;
+      return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+    } catch { return ''; }
+  };
+
+  const formatDisplayTime = (isoStr: string | null) => {
+    if (!isoStr) return '--:--';
+    try {
+      const d = new Date(isoStr);
+      if (isNaN(d.getTime())) return isoStr; // If already HH:mm
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    } catch { return '--:--'; }
   };
 
   const calculateFinancials = (entry: TimesheetEntry) => {
     const emp = employees.find(e => e.employeeId === entry.employeeId);
     if (!emp) return { gross: 0, net: 0, photo: '' };
-    const gross = entry.totalHours * emp.grossHourlyWage;
+    const gross = (entry.totalHours || 0) * emp.grossHourlyWage;
     const net = gross * (1 - employeeDeductionPct / 100);
     return { gross, net, photo: emp.photo };
   };
@@ -97,7 +107,6 @@ const HistoryView: React.FC<Props> = ({ timesheet, employees, settings, onUpdate
         </div>
       )}
 
-      {/* Search & Filter */}
       <div className="flex flex-col md:flex-row gap-4">
         <div className="flex-1 relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
@@ -121,7 +130,6 @@ const HistoryView: React.FC<Props> = ({ timesheet, employees, settings, onUpdate
       </div>
 
       <div className="space-y-4">
-        {/* Desktop Header */}
         <div className="hidden md:grid grid-cols-12 gap-4 px-6 py-3 bg-slate-50 rounded-xl text-[10px] font-black text-slate-500 uppercase tracking-widest text-center">
            <span className="col-span-3">Employee</span>
            <span className="col-span-2">Date</span>
@@ -141,7 +149,6 @@ const HistoryView: React.FC<Props> = ({ timesheet, employees, settings, onUpdate
                 key={entry.id} 
                 className="group bg-white flex flex-col md:grid md:grid-cols-12 items-center gap-4 p-6 md:px-6 md:py-3 border border-slate-100 rounded-[2.5rem] md:rounded-xl hover:shadow-lg transition-all text-center"
               >
-                {/* Employee Info - Top on Mobile, Left on Desktop */}
                 <div className="w-full md:col-span-3 flex flex-col md:flex-row items-center md:justify-start gap-3 md:gap-4 text-center md:text-left">
                   <div className="w-16 h-16 md:w-10 md:h-10 rounded-2xl bg-indigo-50 overflow-hidden shadow-sm shrink-0 border-2 border-white">
                     {photo ? (
@@ -157,14 +164,12 @@ const HistoryView: React.FC<Props> = ({ timesheet, employees, settings, onUpdate
                   </div>
                 </div>
 
-                {/* Mobile Separator */}
                 <div className="md:hidden w-full h-px bg-slate-50"></div>
 
-                {/* Date & Timeline Group */}
                 <div className="w-full md:col-span-2 flex flex-col items-center gap-1">
                    <span className="md:hidden text-[9px] font-black text-slate-400 uppercase tracking-tighter">Shift Date</span>
                    <span className="text-sm md:text-[11px] font-black text-slate-600 bg-slate-100 px-4 py-1.5 rounded-xl uppercase">
-                    {new Date(entry.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                    {entry.date.split('T')[0]}
                   </span>
                 </div>
 
@@ -172,16 +177,15 @@ const HistoryView: React.FC<Props> = ({ timesheet, employees, settings, onUpdate
                    <span className="md:hidden text-[9px] font-black text-slate-400 uppercase tracking-tighter">Clock Timeline</span>
                    <div className="flex items-center justify-center gap-3">
                     <span className="text-xs font-black text-emerald-600">
-                      {new Date(entry.timeIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {formatDisplayTime(entry.timeIn)}
                     </span>
                     <ArrowRight size={12} className="text-slate-200" />
                     <span className="text-xs font-black text-rose-600">
-                      {entry.timeOut && new Date(entry.timeOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {formatDisplayTime(entry.timeOut)}
                     </span>
                   </div>
                 </div>
 
-                {/* Grid for values on Mobile */}
                 <div className="w-full grid grid-cols-3 md:contents gap-4">
                   <div className="flex flex-col items-center gap-1 md:col-span-1">
                     <span className="md:hidden text-[9px] font-black text-slate-400 uppercase">Break</span>
@@ -199,13 +203,11 @@ const HistoryView: React.FC<Props> = ({ timesheet, employees, settings, onUpdate
                   </div>
                 </div>
 
-                {/* Net Total - Highlighted */}
                 <div className="w-full md:col-span-1 flex flex-col items-center gap-1 pt-4 md:pt-0">
                   <span className="md:hidden text-[9px] font-black text-slate-400 uppercase">Net Payable</span>
                   <span className="text-lg md:text-sm font-black text-indigo-600 bg-indigo-50 md:bg-transparent w-full md:w-auto py-2 md:py-0 rounded-2xl">€{net.toFixed(2)}</span>
                 </div>
 
-                {/* Actions */}
                 <div className="w-full md:col-span-1 flex justify-center gap-4 pt-4 md:pt-0">
                   <button 
                     onClick={() => setEditingEntry(entry)} 
@@ -234,7 +236,6 @@ const HistoryView: React.FC<Props> = ({ timesheet, employees, settings, onUpdate
         )}
       </div>
 
-      {/* Edit Modal */}
       {editingEntry && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[110] flex items-center justify-center p-4">
           <div className="bg-white rounded-[2.5rem] w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in duration-200">
@@ -247,11 +248,11 @@ const HistoryView: React.FC<Props> = ({ timesheet, employees, settings, onUpdate
             <form onSubmit={handleUpdateEntry} className="p-8 space-y-6 text-center">
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-slate-500 uppercase flex items-center gap-2 justify-center"><Clock size={12} /> Shift Start</label>
-                <input type="datetime-local" className="w-full px-5 py-3 border border-slate-200 rounded-2xl font-bold text-center bg-slate-50" value={toLocalISO(editingEntry.timeIn)} onChange={e => setEditingEntry({...editingEntry, timeIn: new Date(e.target.value).toISOString()})} />
+                <input type="datetime-local" className="w-full px-5 py-3 border border-slate-200 rounded-2xl font-bold text-center bg-slate-50" value={toLocalISOForInput(editingEntry.timeIn)} onChange={e => setEditingEntry({...editingEntry, timeIn: new Date(e.target.value).toISOString()})} />
               </div>
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-slate-500 uppercase flex items-center gap-2 justify-center"><Clock size={12} /> Shift End</label>
-                <input type="datetime-local" className="w-full px-5 py-3 border border-slate-200 rounded-2xl font-bold text-center bg-slate-50" value={toLocalISO(editingEntry.timeOut)} onChange={e => setEditingEntry({...editingEntry, timeOut: new Date(e.target.value).toISOString()})} />
+                <input type="datetime-local" className="w-full px-5 py-3 border border-slate-200 rounded-2xl font-bold text-center bg-slate-50" value={toLocalISOForInput(editingEntry.timeOut)} onChange={e => setEditingEntry({...editingEntry, timeOut: new Date(e.target.value).toISOString()})} />
               </div>
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-slate-500 uppercase flex items-center gap-2 justify-center"><Coffee size={12} /> Break Minutes</label>
@@ -266,7 +267,6 @@ const HistoryView: React.FC<Props> = ({ timesheet, employees, settings, onUpdate
         </div>
       )}
 
-      {/* Delete Confirmation */}
       {confirmDeleteEntryId && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[110] flex items-center justify-center p-4">
           <div className="bg-white rounded-[2rem] p-8 max-sm w-full shadow-2xl text-center">
