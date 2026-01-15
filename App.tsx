@@ -55,21 +55,8 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    const init = async () => {
-      const info = db.getCompanyInfo();
-      if (info.appsScriptUrl) {
-        setSyncStatus('syncing');
-        const success = await db.performGlobalSync();
-        setSyncStatus(success ? 'success' : 'error');
-        if (success) {
-          setLastSyncTime(new Date());
-          setTimeout(() => setSyncStatus('idle'), 2000);
-        }
-      }
-      refreshData();
-    };
-    init();
-    // Removed setInterval: Synchronization now triggered by User Actions only
+    // Initial data load from local storage only. No auto-sync.
+    refreshData();
   }, []);
 
   const activeEntries = useMemo(() => 
@@ -196,7 +183,7 @@ const App: React.FC = () => {
                navItems.find(i => i.id === currentView)?.label === 'Leave' ? 'Holiday Management' :
                navItems.find(i => i.id === currentView)?.label}
             </h2>
-            <p className="text-slate-500 text-sm font-medium">Cloud connected. Actions trigger instant sync.</p>
+            <p className="text-slate-500 text-sm font-medium">Manual Cloud Sync enabled.</p>
           </div>
         </header>
 

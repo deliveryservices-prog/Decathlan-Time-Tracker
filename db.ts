@@ -22,7 +22,7 @@ const formatToHHmm = (isoStr: string | null): string => {
   if (!isoStr || isoStr === '' || isoStr === 'null') return '';
   try {
     const date = new Date(isoStr);
-    if (isNaN(date.getTime())) return isoStr; // Return as is if already HH:mm
+    if (isNaN(date.getTime())) return isoStr; 
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
   } catch {
     return '';
@@ -34,7 +34,7 @@ const formatToHHmm = (isoStr: string | null): string => {
  */
 const reconstructISO = (dateStr: string, timeStr: string | null): string | null => {
   if (!timeStr || timeStr === '' || timeStr === '-' || timeStr === 'null') return null;
-  if (String(timeStr).includes('T')) return timeStr; // Already ISO
+  if (String(timeStr).includes('T')) return timeStr; 
   try {
     const [hrs, mins] = timeStr.split(':');
     const d = new Date(dateStr);
@@ -47,7 +47,6 @@ const reconstructISO = (dateStr: string, timeStr: string | null): string | null 
 
 /**
  * Merges lists non-destructively based on unique IDs.
- * Filters out empty rows to prevent corruption.
  */
 const mergeLists = (local: any[], cloud: any[], idField: string) => {
   const cleanLocal = (local || []).filter(item => item && item[idField]);
@@ -69,18 +68,16 @@ export const db = {
     if (!url || url.includes('/edit')) return false;
 
     try {
-      // 1. PULL latest from Cloud
       const getResponse = await fetch(url, { method: 'GET', cache: 'no-cache', mode: 'cors' });
       if (!getResponse.ok) return false;
       const cloudData = await getResponse.json();
 
-      // 2. Format Cloud Data and scrub empty rows
       if (cloudData[KEYS.TIMESHEET] && Array.isArray(cloudData[KEYS.TIMESHEET])) {
         cloudData[KEYS.TIMESHEET] = cloudData[KEYS.TIMESHEET]
           .filter((e: any) => e && e.id)
           .map((entry: any) => ({
             ...entry,
-            date: (entry.date || '').split('T')[0], // Ensure strict YYYY-MM-DD
+            date: (entry.date || '').split('T')[0],
             timeIn: reconstructISO(entry.date, entry.timeIn) || entry.timeIn,
             timeOut: reconstructISO(entry.date, entry.timeOut) || entry.timeOut,
             breakMinutes: parseInt(entry.breakMinutes) || 0,
@@ -88,23 +85,23 @@ export const db = {
           }));
       }
 
-      // 3. MERGE
       const mergedEmployees = mergeLists(db.getEmployees(), cloudData[KEYS.EMPLOYEES], 'employeeId');
       const mergedTimesheet = mergeLists(db.getTimesheet(), cloudData[KEYS.TIMESHEET], 'id');
       const mergedHolidays = mergeLists(db.getHolidays(), cloudData[KEYS.HOLIDAYS], 'id');
       const mergedPH = mergeLists(db.getPublicHolidays(), cloudData[KEYS.PUBLIC_HOLIDAYS], 'id');
 
-      // 4. PERSIST LOCAL
       localStorage.setItem(KEYS.EMPLOYEES, JSON.stringify(mergedEmployees));
       localStorage.setItem(KEYS.TIMESHEET, JSON.stringify(mergedTimesheet));
       localStorage.setItem(KEYS.HOLIDAYS, JSON.stringify(mergedHolidays));
       localStorage.setItem(KEYS.PUBLIC_HOLIDAYS, JSON.stringify(mergedPH));
-      if (cloudData[KEYS.SETTINGS]) localStorage.setItem(KEYS.SETTINGS, JSON.stringify(cloudData[KEYS.SETTINGS]));
+      
+      if (cloudData[KEYS.SETTINGS] && Array.isArray(cloudData[KEYS.SETTINGS]) && cloudData[KEYS.SETTINGS].length > 0) {
+        localStorage.setItem(KEYS.SETTINGS, JSON.stringify(cloudData[KEYS.SETTINGS]));
+      }
 
-      // 5. PUSH CLEAN DATA BACK
       const formattedTimesheet = mergedTimesheet.map(entry => ({
         ...entry,
-        date: entry.date.split('T')[0], // Triple safety for cloud push
+        date: entry.date.split('T')[0], 
         timeIn: formatToHHmm(entry.timeIn),
         timeOut: entry.timeOut ? formatToHHmm(entry.timeOut) : null
       }));
@@ -152,14 +149,12 @@ export const db = {
 
   updateCompanyInfo: (info: CompanyInfo): void => {
     localStorage.setItem(KEYS.COMPANY, JSON.stringify(info));
-    db.performGlobalSync();
   },
 
   saveEmployee: (employee: Employee): void => {
     const employees = db.getEmployees();
     employees.push(employee);
     localStorage.setItem(KEYS.EMPLOYEES, JSON.stringify(employees));
-    db.performGlobalSync();
   },
 
   updateEmployee: (updatedEmployee: Employee): void => {
@@ -168,14 +163,12 @@ export const db = {
     if (index !== -1) {
       employees[index] = updatedEmployee;
       localStorage.setItem(KEYS.EMPLOYEES, JSON.stringify(employees));
-      db.performGlobalSync();
     }
   },
 
   deleteEmployee: (employeeId: string): void => {
     const employees = db.getEmployees().filter(e => e.employeeId !== employeeId);
     localStorage.setItem(KEYS.EMPLOYEES, JSON.stringify(employees));
-    db.performGlobalSync();
   },
 
   getTimesheet: (): TimesheetEntry[] => {
@@ -185,7 +178,9 @@ export const db = {
 
   getSettings: (): Setting[] => {
     const data = localStorage.getItem(KEYS.SETTINGS);
-    return data ? JSON.parse(data) : INITIAL_SETTINGS;
+    const parsed = data ? JSON.parse(data) : [];
+    // If parsed is empty, fallback to INITIAL_SETTINGS
+    return (Array.isArray(parsed) && parsed.length > 0) ? parsed : INITIAL_SETTINGS;
   },
 
   updateTimesheetEntry: (updatedEntry: TimesheetEntry): void => {
@@ -194,19 +189,16 @@ export const db = {
     if (index !== -1) {
       timesheet[index] = updatedEntry;
       localStorage.setItem(KEYS.TIMESHEET, JSON.stringify(timesheet));
-      db.performGlobalSync();
     }
   },
 
   deleteTimesheetEntry: (id: string): void => {
     const timesheet = db.getTimesheet().filter(t => t.id !== id);
     localStorage.setItem(KEYS.TIMESHEET, JSON.stringify(timesheet));
-    db.performGlobalSync();
   },
 
   updateSettings: (settings: Setting[]) => {
     localStorage.setItem(KEYS.SETTINGS, JSON.stringify(settings));
-    db.performGlobalSync();
   },
 
   getHolidays: (): HolidayEntry[] => {
@@ -218,7 +210,6 @@ export const db = {
     const holidays = db.getHolidays();
     holidays.push(holiday);
     localStorage.setItem(KEYS.HOLIDAYS, JSON.stringify(holidays));
-    db.performGlobalSync();
   },
 
   updateHoliday: (holiday: HolidayEntry) => {
@@ -227,14 +218,12 @@ export const db = {
     if (index !== -1) {
       holidays[index] = holiday;
       localStorage.setItem(KEYS.HOLIDAYS, JSON.stringify(holidays));
-      db.performGlobalSync();
     }
   },
 
   deleteHoliday: (id: string) => {
     const holidays = db.getHolidays().filter(h => h.id !== id);
     localStorage.setItem(KEYS.HOLIDAYS, JSON.stringify(holidays));
-    db.performGlobalSync();
   },
 
   getPublicHolidays: (): PublicHoliday[] => {
@@ -246,7 +235,6 @@ export const db = {
     const holidays = db.getPublicHolidays();
     holidays.push(holiday);
     localStorage.setItem(KEYS.PUBLIC_HOLIDAYS, JSON.stringify(holidays));
-    db.performGlobalSync();
   },
 
   updatePublicHoliday: (ph: PublicHoliday) => {
@@ -255,14 +243,12 @@ export const db = {
     if (index !== -1) {
       holidays[index] = ph;
       localStorage.setItem(KEYS.PUBLIC_HOLIDAYS, JSON.stringify(holidays));
-      db.performGlobalSync();
     }
   },
 
   deletePublicHoliday: (id: string) => {
     const holidays = db.getPublicHolidays().filter(h => h.id !== id);
     localStorage.setItem(KEYS.PUBLIC_HOLIDAYS, JSON.stringify(holidays));
-    db.performGlobalSync();
   },
 
   clockIn: async (employeeIds: string[], customTimestamp?: string): Promise<void> => {
@@ -285,7 +271,6 @@ export const db = {
     });
 
     localStorage.setItem(KEYS.TIMESHEET, JSON.stringify([...currentTimesheet, ...newEntries]));
-    await db.performGlobalSync();
   },
 
   clockOut: async (entryId: string, customTimestamp?: string, breakMinutes: number = 0): Promise<void> => {
@@ -309,6 +294,5 @@ export const db = {
     });
     
     localStorage.setItem(KEYS.TIMESHEET, JSON.stringify(updated));
-    await db.performGlobalSync();
   }
 };

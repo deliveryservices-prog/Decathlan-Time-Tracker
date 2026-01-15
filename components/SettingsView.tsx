@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { db } from '../db';
 import { Setting, CompanyInfo } from '../types';
 import { Building2, Mail, Link as LinkIcon, CheckCircle2, CloudLightning } from 'lucide-react';
@@ -15,6 +15,13 @@ const SettingsView: React.FC<Props> = ({ settings, onUpdate }) => {
   const [localSettings, setLocalSettings] = useState<Setting[]>(settings);
   const [companyInfo, setCompanyInfo] = useState<CompanyInfo>(db.getCompanyInfo());
   const [isSaved, setIsSaved] = useState(false);
+
+  // Sync local state when settings prop changes (e.g., after initial load)
+  useEffect(() => {
+    if (settings && settings.length > 0) {
+      setLocalSettings(settings);
+    }
+  }, [settings]);
 
   const hasChanges = useMemo(() => {
     const originalCompany = db.getCompanyInfo();
@@ -100,21 +107,27 @@ const SettingsView: React.FC<Props> = ({ settings, onUpdate }) => {
         <div className="space-y-4">
           <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mb-2">Taxation & Deductions</h4>
           <div className="space-y-2">
-            {localSettings.map(s => (
-              <div key={s.taxType} className="flex items-center justify-between p-5 bg-white rounded-3xl border border-slate-100 shadow-sm hover:border-indigo-200 transition-all">
-                <span className="text-xs font-black text-slate-600 uppercase">{s.taxType}</span>
-                <div className="flex items-center gap-2">
-                  <input 
-                    type="number" 
-                    step="0.01" 
-                    className="w-20 px-3 py-2 bg-slate-50 border border-slate-100 rounded-xl text-right font-black text-indigo-600 outline-none" 
-                    value={s.percentage} 
-                    onChange={(e) => setLocalSettings(prev => prev.map(item => item.taxType === s.taxType ? {...item, percentage: parseFloat(e.target.value) || 0} : item))} 
-                  />
-                  <span className="font-black text-slate-300 text-sm">%</span>
+            {localSettings && localSettings.length > 0 ? (
+              localSettings.map(s => (
+                <div key={s.taxType} className="flex items-center justify-between p-5 bg-white rounded-3xl border border-slate-100 shadow-sm hover:border-indigo-200 transition-all">
+                  <span className="text-xs font-black text-slate-600 uppercase">{s.taxType}</span>
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="number" 
+                      step="0.01" 
+                      className="w-20 px-3 py-2 bg-slate-50 border border-slate-100 rounded-xl text-right font-black text-indigo-600 outline-none" 
+                      value={s.percentage} 
+                      onChange={(e) => setLocalSettings(prev => prev.map(item => item.taxType === s.taxType ? {...item, percentage: parseFloat(e.target.value) || 0} : item))} 
+                    />
+                    <span className="font-black text-slate-300 text-sm">%</span>
+                  </div>
                 </div>
+              ))
+            ) : (
+              <div className="p-10 bg-slate-50 rounded-3xl border border-dashed border-slate-200 text-center">
+                <p className="text-slate-400 font-bold text-xs uppercase italic">No tax profiles detected.</p>
               </div>
-            ))}
+            )}
           </div>
           <button 
             onClick={handleSave} 
@@ -127,37 +140,41 @@ const SettingsView: React.FC<Props> = ({ settings, onUpdate }) => {
           </button>
         </div>
 
-        <div className="bg-white border border-slate-100 rounded-[3rem] p-10 flex flex-col items-center shadow-sm">
+        <div className="bg-white border border-slate-100 rounded-[3rem] p-10 flex flex-col items-center shadow-sm min-h-[400px]">
           <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mb-6 self-start">Salary Distribution</h4>
           <div className="h-[320px] w-full flex items-center justify-center">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie 
-                  data={localSettings} 
-                  dataKey="percentage" 
-                  nameKey="taxType" 
-                  cx="50%" 
-                  cy="50%" 
-                  innerRadius={70} 
-                  outerRadius={100} 
-                  paddingAngle={8} 
-                  stroke="none" 
-                  label={renderCustomLabel} 
-                  labelLine={false}
-                  cornerRadius={12}
-                >
-                  {localSettings.map((_, index) => <Cell key={index} fill={COLORS[index % COLORS.length]} />)}
-                </Pie>
-                <Tooltip contentStyle={{ borderRadius: '1.5rem', border: 'none', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', fontWeight: 'black', fontSize: '10px' }} />
-                <Legend 
-                  iconType="circle" 
-                  layout="horizontal" 
-                  verticalAlign="bottom" 
-                  align="center" 
-                  wrapperStyle={{ fontSize: '9px', fontWeight: 'black', textTransform: 'uppercase', paddingTop: '30px', letterSpacing: '0.05em' }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
+            {localSettings && localSettings.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie 
+                    data={localSettings} 
+                    dataKey="percentage" 
+                    nameKey="taxType" 
+                    cx="50%" 
+                    cy="50%" 
+                    innerRadius={70} 
+                    outerRadius={100} 
+                    paddingAngle={8} 
+                    stroke="none" 
+                    label={renderCustomLabel} 
+                    labelLine={false}
+                    cornerRadius={12}
+                  >
+                    {localSettings.map((_, index) => <Cell key={index} fill={COLORS[index % COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip contentStyle={{ borderRadius: '1.5rem', border: 'none', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', fontWeight: 'black', fontSize: '10px' }} />
+                  <Legend 
+                    iconType="circle" 
+                    layout="horizontal" 
+                    verticalAlign="bottom" 
+                    align="center" 
+                    wrapperStyle={{ fontSize: '9px', fontWeight: 'black', textTransform: 'uppercase', paddingTop: '30px', letterSpacing: '0.05em' }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="text-slate-300 font-black uppercase text-[10px]">Chart unavailable: no data</p>
+            )}
           </div>
         </div>
       </div>
