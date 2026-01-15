@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { db } from '../db';
 import { Setting, CompanyInfo } from '../types';
@@ -145,8 +144,9 @@ const SettingsView: React.FC<Props> = ({ settings, onUpdate }) => {
                   stroke="none" 
                   label={renderCustomLabel} 
                   labelLine={false}
+                  cornerRadius={12}
                 >
-                  {localSettings.map((_, index) => <Cell key={index} fill={COLORS[index % COLORS.length]} cornerRadius={12} />)}
+                  {localSettings.map((_, index) => <Cell key={index} fill={COLORS[index % COLORS.length]} />)}
                 </Pie>
                 <Tooltip contentStyle={{ borderRadius: '1.5rem', border: 'none', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', fontWeight: 'black', fontSize: '10px' }} />
                 <Legend 

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { db } from '../db';
 import { TimesheetEntry, Employee } from '../types';
@@ -217,7 +216,7 @@ const ClockedInView: React.FC<Props> = ({ activeEntries, employees, onSuccess })
                       : 'bg-slate-100 text-slate-300 border-slate-100 cursor-not-allowed shadow-none'
                   }`}
                 >
-                  <LogOut size={20} className="md:size-4" />
+                  <LogOut className="w-5 h-5 md:w-4 h-4" />
                   <span className="md:hidden ml-2 font-black text-xs uppercase tracking-widest">Clock Out Now</span>
                 </button>
               </div>

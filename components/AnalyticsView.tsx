@@ -1,4 +1,3 @@
-
 import React, { useMemo, useState } from 'react';
 import { TimesheetEntry, Employee, Setting, HolidayEntry, PublicHoliday } from '../types';
 import { 
@@ -170,7 +169,7 @@ const AnalyticsView: React.FC<Props> = ({ timesheet, employees, settings, holida
 
     stats.perEmployeeStats.forEach((empStat, idx) => {
       if (idx > 0) doc.addPage();
-      const currentPage = doc.internal.getNumberOfPages();
+      const currentPage = doc.getNumberOfPages();
       drawPageUI(doc, currentPage);
 
       doc.setFontSize(14);
